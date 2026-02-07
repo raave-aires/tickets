@@ -36,7 +36,7 @@ import {
   type TicketEvent,
   TicketMessageType,
   type TicketStatus,
-} from "@/generated/prisma";
+} from "@/prisma/client/client";
 
 type ChatInterfaceProps = {
   conversationId: string;

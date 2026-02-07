@@ -3,7 +3,7 @@ import {
   type TicketConversation,
   TicketMessageType,
   TicketStatus,
-} from "@/generated/prisma";
+} from "@/prisma/client/client";
 import { db } from "@/lib/db";
 
 type UnknownRecord = Record<string, unknown>;

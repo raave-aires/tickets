@@ -1,7 +1,7 @@
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
-import type { Prisma } from "@/generated/prisma";
+import type { Prisma } from "@/prisma/client/client";
 import { auth } from "@/lib/auth";
 import {
   createConversation,

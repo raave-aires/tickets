@@ -6,7 +6,7 @@ import {
   type HistoryStatusFilterValue,
 } from "@/components/tickets/history-status-filter";
 import { Button } from "@/components/ui/button";
-import type { TicketStatus } from "@/generated/prisma";
+import type { TicketStatus } from "@/prisma/client/client";
 import { db } from "@/lib/db";
 import { requireServerSession } from "@/lib/session";
 

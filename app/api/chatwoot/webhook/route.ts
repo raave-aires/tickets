@@ -1,6 +1,6 @@
 import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
-import type { Prisma } from "@/generated/prisma";
+import type { Prisma } from "@/prisma/client/client";
 import { db } from "@/lib/db";
 import {
   applyConversationStatusFromWebhook,

@@ -1,4 +1,4 @@
-import { TicketMessageType } from "@/generated/prisma";
+import { TicketMessageType } from "@/prisma/client/client";
 import {
   mapChatwootMessageType,
   parseChatwootTimestamp,
