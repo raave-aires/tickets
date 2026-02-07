@@ -11,7 +11,14 @@ import {
   WifiOff,
   X,
 } from "lucide-react";
-import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type FormEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { StatusBadge } from "@/components/tickets/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -259,6 +266,18 @@ function resolveWsAssignee(data: Record<string, unknown>) {
   };
 }
 
+function isAgentNotificationMessage(message: ChatMessage) {
+  if (!message.isFromAgent) {
+    return false;
+  }
+
+  if (message.messageType === TicketMessageType.ACTIVITY) {
+    return false;
+  }
+
+  return Boolean(message.content || message.attachments.length > 0);
+}
+
 export function ChatInterface({
   conversationId,
   conversationTitle,
@@ -284,7 +303,163 @@ export function ChatInterface({
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const seenMessageIdsRef = useRef<Set<string>>(new Set());
+  const messagesBootstrappedRef = useRef(false);
+  const audioContextRef = useRef<AudioContext | null>(null);
   const messageCount = messages.length;
+
+  const playIncomingSound = useCallback(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const browserWindow = window as Window & {
+      webkitAudioContext?: typeof AudioContext;
+    };
+    const AudioContextCtor =
+      globalThis.AudioContext ?? browserWindow.webkitAudioContext;
+
+    if (!AudioContextCtor) {
+      return;
+    }
+
+    if (!audioContextRef.current) {
+      audioContextRef.current = new AudioContextCtor();
+    }
+
+    const context = audioContextRef.current;
+
+    if (context.state === "suspended") {
+      void context.resume();
+    }
+
+    const now = context.currentTime;
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+
+    oscillator.type = "sine";
+    oscillator.frequency.setValueAtTime(880, now);
+    oscillator.frequency.exponentialRampToValueAtTime(660, now + 0.18);
+
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.08, now + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
+
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+
+    oscillator.start(now);
+    oscillator.stop(now + 0.22);
+    oscillator.onended = () => {
+      oscillator.disconnect();
+      gain.disconnect();
+    };
+  }, []);
+
+  const showIncomingNotification = useCallback(
+    (message: ChatMessage) => {
+      if (typeof window === "undefined" || !("Notification" in window)) {
+        return;
+      }
+
+      const sender = message.senderName ?? "Agente";
+      const content = message.content.trim();
+      const title = `Nova mensagem em ${conversationTitle}`;
+      const body = content
+        ? `${sender}: ${content}`
+        : message.attachments.length === 1
+          ? `${sender} enviou ${message.attachments[0]?.title ?? "um arquivo"}`
+          : `${sender} enviou ${message.attachments.length} arquivos`;
+
+      if (Notification.permission === "granted") {
+        const notification = new Notification(title, {
+          body,
+          tag: `tickets:${conversationId}`,
+        });
+
+        notification.onclick = () => {
+          window.focus();
+        };
+
+        setTimeout(() => notification.close(), 9000);
+        return;
+      }
+
+      if (Notification.permission === "default") {
+        void Notification.requestPermission();
+      }
+    },
+    [conversationId, conversationTitle],
+  );
+
+  useEffect(() => {
+    void conversationId;
+    seenMessageIdsRef.current = new Set();
+    messagesBootstrappedRef.current = false;
+  }, [conversationId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    function bootstrapRealtimeAlerts() {
+      if ("Notification" in window && Notification.permission === "default") {
+        void Notification.requestPermission();
+      }
+
+      if (audioContextRef.current?.state === "suspended") {
+        void audioContextRef.current.resume();
+      }
+    }
+
+    window.addEventListener("pointerdown", bootstrapRealtimeAlerts, {
+      once: true,
+    });
+    window.addEventListener("keydown", bootstrapRealtimeAlerts, { once: true });
+
+    return () => {
+      window.removeEventListener("pointerdown", bootstrapRealtimeAlerts);
+      window.removeEventListener("keydown", bootstrapRealtimeAlerts);
+    };
+  }, []);
+
+  useEffect(() => {
+    const seen = seenMessageIdsRef.current;
+
+    if (!messagesBootstrappedRef.current) {
+      for (const message of messages) {
+        seen.add(String(message.id));
+      }
+      messagesBootstrappedRef.current = true;
+      return;
+    }
+
+    const newMessages = messages.filter(
+      (message) => !seen.has(String(message.id)),
+    );
+
+    if (newMessages.length === 0) {
+      return;
+    }
+
+    for (const message of newMessages) {
+      seen.add(String(message.id));
+    }
+
+    const notifiableMessages = newMessages.filter(isAgentNotificationMessage);
+    if (notifiableMessages.length === 0) {
+      return;
+    }
+
+    const latestMessage = notifiableMessages[notifiableMessages.length - 1];
+    if (!latestMessage) {
+      return;
+    }
+
+    playIncomingSound();
+    showIncomingNotification(latestMessage);
+  }, [messages, playIncomingSound, showIncomingNotification]);
 
   const connectionIndicator = useMemo(() => {
     if (connectionState === "connected") {
