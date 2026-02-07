@@ -13,7 +13,7 @@ import type {
   TicketConversation,
   TicketEvent,
   TicketMessage,
-} from "@/prisma/client/client";
+} from "@/prisma/client/browser";
 
 type ConversationCardProps = {
   conversation: TicketConversation & {
