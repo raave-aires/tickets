@@ -1,0 +1,198 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum TicketComplexity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum TicketStatus {
+  OPEN
+  PENDING
+  RESOLVED
+  SNOOZED
+}
+
+enum RequestTarget {
+  SELF
+  OTHER
+}
+
+enum TicketMessageType {
+  INCOMING
+  OUTGOING
+  ACTIVITY
+  SYSTEM
+}
+
+model User {
+  id                   String                @id @default(cuid())
+  name                 String
+  email                String                @unique
+  emailVerified        Boolean               @default(false)
+  image                String?
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  accounts             Account[]
+  sessions             Session[]
+  conversations        TicketConversation[]
+  chatwootContactLinks ChatwootContactLink[]
+
+  @@map("user")
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id @default(cuid())
+  userId                String
+  accountId             String
+  providerId            String
+  accessToken           String?
+  refreshToken          String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  idToken               String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@unique([providerId, accountId])
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verification")
+}
+
+model TicketConversation {
+  id                      String                 @id @default(cuid())
+  userId                  String
+  title                   String
+  description             String
+  complexity              TicketComplexity
+  sector                  String
+  requestTarget           RequestTarget
+  requestForName          String?
+  requestForEmail         String?
+  status                  TicketStatus           @default(OPEN)
+  chatwootConversationId  Int?                   @unique
+  chatwootContactId       String
+  chatwootPubsubToken     String
+  chatwootSourceId        String?
+  chatwootInboxIdentifier String
+  assignedAgentId         Int?
+  assignedAgentName       String?
+  assignedAt              DateTime?
+  resolvedAt              DateTime?
+  reopenedAt              DateTime?
+  metadata                Json?
+  createdAt               DateTime               @default(now())
+  updatedAt               DateTime               @updatedAt
+  user                    User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  events                  TicketEvent[]
+  messages                TicketMessage[]
+  webhookDeliveries       ChatwootWebhookDelivery[]
+
+  @@index([userId, createdAt])
+  @@index([chatwootConversationId])
+  @@map("ticket_conversation")
+}
+
+model TicketMessage {
+  id                String            @id @default(cuid())
+  conversationId    String
+  chatwootMessageId Int?
+  messageType       TicketMessageType
+  content           String
+  senderName        String?
+  senderType        String?
+  echoId            String?
+  externalCreatedAt DateTime?
+  payload           Json?
+  createdAt         DateTime          @default(now())
+  conversation      TicketConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, chatwootMessageId])
+  @@index([conversationId, createdAt])
+  @@map("ticket_message")
+}
+
+model TicketEvent {
+  id             String            @id @default(cuid())
+  conversationId String
+  event          String
+  title          String
+  description    String?
+  payload        Json?
+  occurredAt     DateTime          @default(now())
+  createdAt      DateTime          @default(now())
+  conversation   TicketConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, occurredAt])
+  @@map("ticket_event")
+}
+
+model ChatwootWebhookDelivery {
+  id                     String              @id @default(cuid())
+  event                  String
+  chatwootConversationId Int?
+  ticketConversationId   String?
+  payload                Json
+  createdAt              DateTime            @default(now())
+  conversation           TicketConversation? @relation(fields: [ticketConversationId], references: [id], onDelete: SetNull)
+
+  @@index([event, createdAt])
+  @@index([chatwootConversationId])
+  @@map("chatwoot_webhook_delivery")
+}
+
+model ChatwootContactLink {
+  id                String   @id @default(cuid())
+  userId            String
+  inboxIdentifier   String
+  contactIdentifier String
+  sourceId          String?
+  pubsubToken       String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, inboxIdentifier])
+  @@unique([inboxIdentifier, contactIdentifier])
+  @@index([userId])
+  @@map("chatwoot_contact_link")
+}
