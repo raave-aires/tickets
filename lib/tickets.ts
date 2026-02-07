@@ -21,6 +21,7 @@ type ChatwootMessagePayload = {
   sender?: ChatwootSender;
   created_at?: number | string;
   echo_id?: string;
+  attachments?: unknown[];
 };
 
 function asRecord(value: unknown): UnknownRecord {
@@ -156,8 +157,11 @@ export async function persistChatwootMessage(
 ) {
   const message = payload as ChatwootMessagePayload;
   const normalized = toMessageViewModel(message);
+  const hasAttachments = Array.isArray(message.attachments)
+    ? message.attachments.length > 0
+    : false;
 
-  if (!normalized.content) {
+  if (!normalized.content && !hasAttachments) {
     return null;
   }
 

@@ -8,11 +8,22 @@ import { persistChatwootMessage } from "@/lib/tickets";
 import { messageSchema } from "@/lib/validators";
 
 export const dynamic = "force-dynamic";
+const MAX_ATTACHMENTS = 5;
+const MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024;
+const ALLOWED_MIME_TYPES = new Set(["application/pdf"]);
 
 async function getSession() {
   return auth.api.getSession({
     headers: await headers(),
   });
+}
+
+function isAllowedAttachmentMimeType(mimeType: string) {
+  if (ALLOWED_MIME_TYPES.has(mimeType)) {
+    return true;
+  }
+
+  return mimeType.startsWith("image/");
 }
 
 async function getConversationOrError(id: string, userId: string) {
@@ -124,15 +135,76 @@ export async function POST(
     );
   }
 
-  const body = await request.json();
-  const parsed = messageSchema.safeParse(body);
+  const contentType = request.headers.get("content-type")?.toLowerCase() ?? "";
+  let content = "";
+  let attachments: File[] = [];
 
-  if (!parsed.success) {
+  if (contentType.includes("multipart/form-data")) {
+    const formData = await request.formData();
+    const contentValue = formData.get("content");
+    content = typeof contentValue === "string" ? contentValue.trim() : "";
+
+    const uploadedFiles = [
+      ...formData.getAll("attachments"),
+      ...formData.getAll("attachments[]"),
+    ].filter((value): value is File => value instanceof File);
+
+    if (uploadedFiles.length > MAX_ATTACHMENTS) {
+      return NextResponse.json(
+        {
+          error: `Voce pode enviar no maximo ${MAX_ATTACHMENTS} arquivos por mensagem.`,
+        },
+        { status: 400 },
+      );
+    }
+
+    for (const file of uploadedFiles) {
+      if (file.size === 0) {
+        return NextResponse.json(
+          { error: "Arquivo vazio nao e permitido." },
+          { status: 400 },
+        );
+      }
+
+      if (file.size > MAX_FILE_SIZE_BYTES) {
+        return NextResponse.json(
+          { error: `Cada arquivo deve ter no maximo 15 MB.` },
+          { status: 400 },
+        );
+      }
+
+      if (!isAllowedAttachmentMimeType(file.type)) {
+        return NextResponse.json(
+          {
+            error:
+              "Tipo de arquivo nao permitido. Envie apenas imagens ou documentos PDF.",
+          },
+          { status: 400 },
+        );
+      }
+    }
+
+    attachments = uploadedFiles;
+  } else {
+    const body = await request.json();
+    const parsed = messageSchema.safeParse(body);
+
+    if (!parsed.success) {
+      return NextResponse.json(
+        {
+          error: "Mensagem invalida",
+          issues: parsed.error.flatten(),
+        },
+        { status: 400 },
+      );
+    }
+
+    content = parsed.data.content;
+  }
+
+  if (!content && attachments.length === 0) {
     return NextResponse.json(
-      {
-        error: "Mensagem invalida",
-        issues: parsed.error.flatten(),
-      },
+      { error: "Informe uma mensagem ou anexe ao menos um arquivo." },
       { status: 400 },
     );
   }
@@ -141,8 +213,9 @@ export async function POST(
     const created = await sendMessage({
       contactIdentifier: conversation.chatwootContactId,
       conversationId: chatwootConversationId,
-      content: parsed.data.content,
+      content: content || undefined,
       echoId: `msg-${Date.now()}`,
+      attachments: attachments.length > 0 ? attachments : undefined,
     });
 
     await persistChatwootMessage(conversation.id, created);

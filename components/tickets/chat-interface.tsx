@@ -3,10 +3,13 @@
 import {
   AlertCircle,
   CircleDotDashed,
+  FileText,
   Loader2,
+  Paperclip,
   SendHorizonal,
   Wifi,
   WifiOff,
+  X,
 } from "lucide-react";
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { StatusBadge } from "@/components/tickets/status-badge";
@@ -45,6 +48,17 @@ type ChatMessage = {
   senderType: string | null;
   createdAt: string;
   isFromAgent: boolean;
+  attachments: ChatAttachment[];
+};
+
+type ChatAttachment = {
+  id: string | number;
+  fileType: string | null;
+  fileSize: number | null;
+  extension: string | null;
+  url: string | null;
+  thumbUrl: string | null;
+  title: string | null;
 };
 
 type EventsApiResponse = {
@@ -65,6 +79,62 @@ const timeFormatter = new Intl.DateTimeFormat("pt-BR", {
   dateStyle: "short",
   timeStyle: "short",
 });
+
+function extractFilenameFromUrl(url: string | null | undefined) {
+  if (!url) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(url);
+    const pathname = parsed.pathname.split("/").filter(Boolean);
+    const lastSegment = pathname[pathname.length - 1];
+    return lastSegment ? decodeURIComponent(lastSegment) : null;
+  } catch {
+    const withoutQuery = url.split("?")[0] ?? "";
+    const pathname = withoutQuery.split("/").filter(Boolean);
+    return pathname[pathname.length - 1] ?? null;
+  }
+}
+
+function extractExtensionFromFilename(filename: string | null | undefined) {
+  if (!filename) {
+    return null;
+  }
+
+  const parts = filename.split(".");
+  if (parts.length < 2) {
+    return null;
+  }
+
+  const extension = parts.pop();
+  return extension ? extension.toLowerCase() : null;
+}
+
+function normalizeAttachment(data: Record<string, unknown>): ChatAttachment {
+  const id =
+    typeof data.id === "number" || typeof data.id === "string"
+      ? data.id
+      : `att-${Math.random()}`;
+  const url = typeof data.url === "string" ? data.url : null;
+  const thumbUrl = typeof data.thumbUrl === "string" ? data.thumbUrl : null;
+  const title =
+    (typeof data.title === "string" ? data.title : null) ??
+    extractFilenameFromUrl(url ?? thumbUrl);
+  const extension =
+    (typeof data.extension === "string" ? data.extension : null) ??
+    extractExtensionFromFilename(title);
+
+  return {
+    id,
+    fileType: typeof data.fileType === "string" ? data.fileType : null,
+    fileSize: typeof data.fileSize === "number" ? data.fileSize : null,
+    extension,
+    url,
+    thumbUrl,
+    title,
+  };
+}
 
 function normalizeWsMessage(data: Record<string, unknown>): ChatMessage {
   const messageTypeRaw = data.message_type;
@@ -103,6 +173,25 @@ function normalizeWsMessage(data: Record<string, unknown>): ChatMessage {
 
   const senderType =
     typeof sender.type === "string" ? sender.type.toLowerCase() : null;
+  const attachmentsRaw = Array.isArray(data.attachments)
+    ? data.attachments
+    : [];
+  const attachments = attachmentsRaw
+    .filter(
+      (item): item is Record<string, unknown> =>
+        typeof item === "object" && item !== null,
+    )
+    .map((item) =>
+      normalizeAttachment({
+        id: item.id,
+        fileType: item.file_type,
+        fileSize: item.file_size,
+        extension: item.extension,
+        url: item.data_url,
+        thumbUrl: item.thumb_url,
+        title: item.fallback_title,
+      }),
+    );
 
   return {
     id,
@@ -113,6 +202,7 @@ function normalizeWsMessage(data: Record<string, unknown>): ChatMessage {
     createdAt,
     isFromAgent:
       messageType === TicketMessageType.OUTGOING || senderType === "user",
+    attachments,
   };
 }
 
@@ -184,6 +274,7 @@ export function ChatInterface({
     initialAssignedAgentName,
   );
   const [draft, setDraft] = useState("");
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [sending, setSending] = useState(false);
   const [loadingMessages, setLoadingMessages] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -192,6 +283,7 @@ export function ChatInterface({
   );
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const messageCount = messages.length;
 
   const connectionIndicator = useMemo(() => {
@@ -360,7 +452,7 @@ export function ChatInterface({
 
         if (event === "message.created") {
           const normalized = normalizeWsMessage(data);
-          if (normalized.content) {
+          if (normalized.content || normalized.attachments.length > 0) {
             setMessages((current) => appendUniqueMessage(current, normalized));
           }
         }
@@ -417,34 +509,61 @@ export function ChatInterface({
     event.preventDefault();
 
     const content = draft.trim();
-    if (!content) {
+    if (!content && selectedFiles.length === 0) {
       return;
     }
 
     setErrorMessage(null);
-    const optimisticMessage: ChatMessage = {
-      id: `temp-${Date.now()}`,
-      content,
-      messageType: TicketMessageType.INCOMING,
-      senderName: "Voce",
-      senderType: "contact",
-      createdAt: new Date().toISOString(),
-      isFromAgent: false,
-    };
+    const canUseOptimisticMessage = selectedFiles.length === 0;
+    const optimisticMessage: ChatMessage | null = canUseOptimisticMessage
+      ? {
+          id: `temp-${Date.now()}`,
+          content,
+          messageType: TicketMessageType.INCOMING,
+          senderName: "Voce",
+          senderType: "contact",
+          createdAt: new Date().toISOString(),
+          isFromAgent: false,
+          attachments: [],
+        }
+      : null;
 
-    setMessages((current) => appendUniqueMessage(current, optimisticMessage));
+    if (optimisticMessage) {
+      setMessages((current) => appendUniqueMessage(current, optimisticMessage));
+    }
+
     setDraft("");
 
     try {
       setSending(true);
+      const hasAttachments = selectedFiles.length > 0;
+      const body = hasAttachments
+        ? (() => {
+            const formData = new FormData();
+            if (content) {
+              formData.append("content", content);
+            }
+
+            for (const file of selectedFiles) {
+              formData.append("attachments[]", file);
+            }
+
+            return formData;
+          })()
+        : JSON.stringify({ content });
+
       const response = await fetch(
         `/api/conversations/${conversationId}/messages`,
         {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ content }),
+          ...(hasAttachments
+            ? {}
+            : {
+                headers: {
+                  "Content-Type": "application/json",
+                },
+              }),
+          body,
         },
       );
 
@@ -458,18 +577,33 @@ export function ChatInterface({
         throw new Error(payload.error ?? "Nao foi possivel enviar a mensagem.");
       }
 
-      setMessages((current) => {
-        const withoutOptimistic = current.filter(
-          (item) => String(item.id) !== String(optimisticMessage.id),
+      if (optimisticMessage) {
+        setMessages((current) => {
+          const withoutOptimistic = current.filter(
+            (item) => String(item.id) !== String(optimisticMessage.id),
+          );
+          return appendUniqueMessage(withoutOptimistic, confirmedMessage);
+        });
+      } else {
+        setMessages((current) =>
+          appendUniqueMessage(current, confirmedMessage),
         );
-        return appendUniqueMessage(withoutOptimistic, confirmedMessage);
-      });
+      }
+
+      setSelectedFiles([]);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
     } catch (error) {
-      setMessages((current) =>
-        current.filter(
-          (item) => String(item.id) !== String(optimisticMessage.id),
-        ),
-      );
+      if (optimisticMessage) {
+        setMessages((current) =>
+          current.filter(
+            (item) => String(item.id) !== String(optimisticMessage.id),
+          ),
+        );
+      }
+
+      setDraft(content);
       setErrorMessage(
         error instanceof Error
           ? error.message
@@ -478,6 +612,37 @@ export function ChatInterface({
     } finally {
       setSending(false);
     }
+  }
+
+  function handleSelectFiles(fileList: FileList | null) {
+    if (!fileList || fileList.length === 0) {
+      return;
+    }
+
+    const allowedFiles = Array.from(fileList).filter((file) => {
+      return file.type.startsWith("image/") || file.type === "application/pdf";
+    });
+
+    if (allowedFiles.length !== fileList.length) {
+      setErrorMessage(
+        "Alguns arquivos foram ignorados. Envie apenas imagens ou PDF.",
+      );
+    } else {
+      setErrorMessage(null);
+    }
+
+    setSelectedFiles((current) => {
+      const merged = [...current, ...allowedFiles];
+      return merged.slice(0, 5);
+    });
+  }
+
+  function removeSelectedFile(index: number) {
+    setSelectedFiles((current) => current.filter((_, i) => i !== index));
+  }
+
+  function triggerFilePicker() {
+    fileInputRef.current?.click();
   }
 
   return (
@@ -548,9 +713,74 @@ export function ChatInterface({
                         {message.senderName}
                       </p>
                     ) : null}
-                    <p className="whitespace-pre-wrap break-words">
-                      {message.content}
-                    </p>
+                    {message.content ? (
+                      <p className="whitespace-pre-wrap break-words">
+                        {message.content}
+                      </p>
+                    ) : null}
+
+                    {message.attachments.length > 0 ? (
+                      <div className="mt-2 space-y-2">
+                        {message.attachments.map((attachment) => {
+                          const fileUrl = attachment.url ?? attachment.thumbUrl;
+                          const isImage =
+                            attachment.fileType === "image" ||
+                            attachment.fileType?.startsWith("image/") ||
+                            [
+                              "png",
+                              "jpg",
+                              "jpeg",
+                              "gif",
+                              "webp",
+                              "bmp",
+                              "svg",
+                              "avif",
+                              "heic",
+                              "heif",
+                            ].includes(
+                              attachment.extension?.toLowerCase() ?? "",
+                            );
+                          const attachmentLabel =
+                            attachment.title ??
+                            (attachment.extension
+                              ? `arquivo.${attachment.extension}`
+                              : "Arquivo");
+
+                          if (isImage && fileUrl) {
+                            return (
+                              <a
+                                key={String(attachment.id)}
+                                href={fileUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="block overflow-hidden rounded-md border border-white/20"
+                              >
+                                <img
+                                  src={fileUrl}
+                                  alt={attachmentLabel}
+                                  className="max-h-64 w-full object-cover"
+                                />
+                              </a>
+                            );
+                          }
+
+                          return (
+                            <a
+                              key={String(attachment.id)}
+                              href={fileUrl ?? "#"}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="flex items-center gap-2 rounded-md border border-white/20 px-2 py-1 text-xs"
+                            >
+                              <FileText className="size-3.5" />
+                              <span className="truncate">
+                                {attachmentLabel}
+                              </span>
+                            </a>
+                          );
+                        })}
+                      </div>
+                    ) : null}
                     <p className="mt-2 text-[11px] opacity-75">
                       {timeFormatter.format(new Date(message.createdAt))}
                     </p>
@@ -560,10 +790,53 @@ export function ChatInterface({
             </div>
           </ScrollArea>
 
+          {selectedFiles.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {selectedFiles.map((file, index) => (
+                <div
+                  key={`${file.name}-${file.size}-${index}`}
+                  className="inline-flex items-center gap-2 rounded-md border px-2 py-1 text-xs"
+                >
+                  <FileText className="size-3.5" />
+                  <span className="max-w-40 truncate">{file.name}</span>
+                  <button
+                    type="button"
+                    className="rounded p-0.5 hover:bg-muted"
+                    onClick={() => removeSelectedFile(index)}
+                    aria-label={`Remover ${file.name}`}
+                  >
+                    <X className="size-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : null}
+
           <form
             className="flex items-center gap-2"
             onSubmit={sendCurrentMessage}
           >
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="hidden"
+              accept="image/*,application/pdf"
+              multiple
+              onChange={(event) => {
+                handleSelectFiles(event.target.files);
+                event.currentTarget.value = "";
+              }}
+            />
+            <Button
+              type="button"
+              size="icon-sm"
+              variant="outline"
+              onClick={triggerFilePicker}
+              disabled={sending || selectedFiles.length >= 5}
+              aria-label="Anexar arquivo"
+            >
+              <Paperclip className="size-4" />
+            </Button>
             <Input
               name="message"
               value={draft}
@@ -576,7 +849,9 @@ export function ChatInterface({
             <Button
               type="submit"
               size="default"
-              disabled={sending || !draft.trim()}
+              disabled={
+                sending || (!draft.trim() && selectedFiles.length === 0)
+              }
               aria-label="Enviar mensagem"
             >
               {sending ? (

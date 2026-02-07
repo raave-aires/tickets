@@ -18,6 +18,7 @@ type ChatwootMessage = {
   id?: number | string;
   content?: string;
   message_type?: number | string;
+  content_type?: string;
   sender?: {
     id?: number | string;
     name?: string;
@@ -25,7 +26,49 @@ type ChatwootMessage = {
   };
   created_at?: number | string;
   echo_id?: string;
+  attachments?: ChatwootAttachment[];
 };
+
+type ChatwootAttachment = {
+  id?: number | string;
+  file_type?: string;
+  file_size?: number;
+  extension?: string;
+  data_url?: string;
+  thumb_url?: string;
+  fallback_title?: string;
+};
+
+function extractFilenameFromUrl(url: string | null | undefined) {
+  if (!url) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(url);
+    const pathname = parsed.pathname.split("/").filter(Boolean);
+    const lastSegment = pathname[pathname.length - 1];
+    return lastSegment ? decodeURIComponent(lastSegment) : null;
+  } catch {
+    const withoutQuery = url.split("?")[0] ?? "";
+    const pathname = withoutQuery.split("/").filter(Boolean);
+    return pathname[pathname.length - 1] ?? null;
+  }
+}
+
+function extractExtensionFromFilename(filename: string | null | undefined) {
+  if (!filename) {
+    return null;
+  }
+
+  const parts = filename.split(".");
+  if (parts.length < 2) {
+    return null;
+  }
+
+  const extension = parts.pop();
+  return extension ? extension.toLowerCase() : null;
+}
 
 export type ChatwootConversationSummary = {
   id: number;
@@ -58,13 +101,16 @@ async function chatwootRequest<T>(
 ): Promise<T> {
   const { baseUrl } = getChatwootConfig();
   const url = `${baseUrl}${path}`;
+  const isFormData = init?.body instanceof FormData;
+  const headers = new Headers(init?.headers);
+
+  if (!isFormData && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
 
   const response = await fetch(url, {
     ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {}),
-    },
+    headers,
   });
 
   if (!response.ok) {
@@ -176,23 +222,47 @@ export async function createConversation(params: {
 export async function sendMessage(params: {
   contactIdentifier: string;
   conversationId: number;
-  content: string;
+  content?: string;
   echoId?: string;
+  attachments?: File[];
 }) {
   const { inboxIdentifier } = getChatwootConfig();
+  const hasAttachments = Array.isArray(params.attachments)
+    ? params.attachments.length > 0
+    : false;
+  const content = params.content?.trim();
+  const path = `/public/api/v1/inboxes/${inboxIdentifier}/contacts/${encodeURIComponent(
+    params.contactIdentifier,
+  )}/conversations/${params.conversationId}/messages`;
 
-  return chatwootRequest<ChatwootMessage>(
-    `/public/api/v1/inboxes/${inboxIdentifier}/contacts/${encodeURIComponent(
-      params.contactIdentifier,
-    )}/conversations/${params.conversationId}/messages`,
-    {
+  if (hasAttachments) {
+    const formData = new FormData();
+
+    if (content) {
+      formData.append("content", content);
+    }
+
+    if (params.echoId) {
+      formData.append("echo_id", params.echoId);
+    }
+
+    for (const attachment of params.attachments ?? []) {
+      formData.append("attachments[]", attachment);
+    }
+
+    return chatwootRequest<ChatwootMessage>(path, {
       method: "POST",
-      body: JSON.stringify({
-        content: params.content,
-        echo_id: params.echoId,
-      }),
-    },
-  );
+      body: formData,
+    });
+  }
+
+  return chatwootRequest<ChatwootMessage>(path, {
+    method: "POST",
+    body: JSON.stringify({
+      content,
+      echo_id: params.echoId,
+    }),
+  });
 }
 
 export async function listMessages(params: {
@@ -241,6 +311,23 @@ export function toClientMessage(message: ChatwootMessage) {
     isFromAgent:
       mapChatwootMessageType(message.message_type) ===
         TicketMessageType.OUTGOING || data.senderType?.toLowerCase() === "user",
+    attachments: (message.attachments ?? []).map((attachment) => {
+      const url = attachment.data_url ?? attachment.thumb_url ?? null;
+      const title =
+        attachment.fallback_title ?? extractFilenameFromUrl(url) ?? null;
+      const extension =
+        attachment.extension ?? extractExtensionFromFilename(title);
+
+      return {
+        id: attachment.id ?? `att-${crypto.randomUUID()}`,
+        fileType: attachment.file_type ?? null,
+        fileSize: attachment.file_size ?? null,
+        extension,
+        url,
+        thumbUrl: attachment.thumb_url ?? null,
+        title,
+      };
+    }),
     rawMessageType: message.message_type,
     parsedDate:
       parseChatwootTimestamp(message.created_at)?.toISOString() ?? null,
