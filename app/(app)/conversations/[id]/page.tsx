@@ -33,7 +33,7 @@ export default async function ConversationPage(props: {
 
   return (
     <div className="space-y-4">
-      <p className="text-xs uppercase tracking-[0.15em] text-muted-foreground">
+      <p className="text-sm text-muted-foreground">
         Conversa #{conversation.chatwootConversationId ?? conversation.id}
       </p>
 

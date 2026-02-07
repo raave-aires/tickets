@@ -8,9 +8,12 @@ export default async function NewConversationPage() {
 
   return (
     <div className="mx-auto max-w-3xl space-y-4">
-      <p className="text-xs uppercase tracking-[0.15em] text-muted-foreground">
-        Novo ticket
-      </p>
+      <div className="space-y-1">
+        <h1 className="text-2xl font-semibold tracking-tight">Nova conversa</h1>
+        <p className="text-sm text-muted-foreground">
+          Preencha os campos para abrir seu ticket no Chatwoot.
+        </p>
+      </div>
       <NewConversationForm />
     </div>
   );

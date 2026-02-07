@@ -4,37 +4,49 @@ type ComplexityBadgeProps = {
   complexity: string;
 };
 
-const complexityConfig: Record<string, { label: string; className: string }> = {
+const complexityConfig: Record<
+  string,
+  {
+    label: string;
+    variant: "default" | "secondary" | "outline";
+    className: string;
+  }
+> = {
   LOW: {
     label: "Baixa",
+    variant: "outline",
     className:
-      "border-green-300/60 bg-green-100/80 text-green-800 dark:border-green-500/50 dark:bg-green-800/30 dark:text-green-100",
+      "border-emerald-500/45 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
   },
   MEDIUM: {
     label: "Media",
+    variant: "outline",
     className:
-      "border-yellow-300/60 bg-yellow-100/80 text-yellow-800 dark:border-yellow-500/50 dark:bg-yellow-800/30 dark:text-yellow-100",
+      "border-amber-500/45 bg-amber-500/10 text-amber-700 dark:text-amber-300",
   },
   HIGH: {
     label: "Alta",
+    variant: "outline",
     className:
-      "border-orange-300/60 bg-orange-100/80 text-orange-800 dark:border-orange-500/50 dark:bg-orange-800/30 dark:text-orange-100",
+      "border-orange-500/45 bg-orange-500/10 text-orange-700 dark:text-orange-300",
   },
   CRITICAL: {
     label: "Critica",
+    variant: "outline",
     className:
-      "border-red-300/60 bg-red-100/80 text-red-800 dark:border-red-500/50 dark:bg-red-800/30 dark:text-red-100",
+      "border-rose-500/45 bg-rose-500/10 text-rose-700 dark:text-rose-300",
   },
 };
 
 export function ComplexityBadge({ complexity }: ComplexityBadgeProps) {
   const config = complexityConfig[complexity] ?? {
     label: complexity,
-    className: "border-border",
+    variant: "outline" as const,
+    className: "",
   };
 
   return (
-    <Badge variant="outline" className={config.className}>
+    <Badge variant={config.variant} className={config.className}>
       {config.label}
     </Badge>
   );

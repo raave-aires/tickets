@@ -11,7 +11,10 @@ import {
 } from "@/lib/chatwoot";
 import { db } from "@/lib/db";
 import { persistChatwootMessage } from "@/lib/tickets";
-import { conversationCreateSchema } from "@/lib/validators";
+import {
+  type ConversationCreateInput,
+  conversationCreateSchema,
+} from "@/lib/validators";
 
 export const dynamic = "force-dynamic";
 
@@ -46,6 +49,43 @@ function buildContactAttributes(params: {
       (account) => `${account.providerId}:${account.accountId}`,
     ),
   };
+}
+
+const complexityLabels: Record<ConversationCreateInput["complexity"], string> =
+  {
+    LOW: "Baixa",
+    MEDIUM: "Media",
+    HIGH: "Alta",
+    CRITICAL: "Critica",
+  };
+
+function buildInitialContextMessage(input: ConversationCreateInput) {
+  const lines = [
+    "Ticket aberto via portal Tickets.",
+    `Titulo: ${input.title}`,
+    `Complexidade: ${complexityLabels[input.complexity]}`,
+    `Setor: ${input.sector}`,
+    `Solicitacao: ${
+      input.requestTarget === "SELF" ? "Para mim" : "Para outra pessoa"
+    }`,
+  ];
+
+  if (input.requestTarget === "OTHER") {
+    lines.push(
+      `Solicitante: ${input.requestForName?.trim() || "Nao informado"}`,
+    );
+    lines.push(
+      `E-mail do solicitante: ${
+        input.requestForEmail?.trim() || "Nao informado"
+      }`,
+    );
+  }
+
+  lines.push("");
+  lines.push("Descricao:");
+  lines.push(input.description);
+
+  return lines.join("\n");
 }
 
 async function ensureLinkedChatwootContact(params: {
@@ -226,7 +266,7 @@ export async function POST(request: Request) {
     const initialMessage = await sendMessage({
       contactIdentifier: contact.identifier,
       conversationId: chatwootConversation.id,
-      content: input.description,
+      content: buildInitialContextMessage(input),
       echoId: `initial-${conversation.id}`,
     });
 

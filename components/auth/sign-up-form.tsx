@@ -60,9 +60,9 @@ export function SignUpForm() {
   }
 
   return (
-    <Card className="border-white/20 bg-white/80 backdrop-blur-lg dark:border-white/10 dark:bg-card/85">
+    <Card>
       <CardHeader className="space-y-2">
-        <CardTitle className="font-display text-2xl">Criar conta</CardTitle>
+        <CardTitle>Criar conta</CardTitle>
         <CardDescription>
           Cadastre-se para abrir e acompanhar tickets em tempo real.
         </CardDescription>

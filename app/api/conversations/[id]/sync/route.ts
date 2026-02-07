@@ -54,18 +54,19 @@ export async function POST(
 
     if (
       event === "conversation.updated" ||
-      event === "conversation.status_changed"
+      event === "conversation.status_changed" ||
+      event === "assignee.changed"
     ) {
-      const status = mapChatwootStatus(
-        (data as { status?: string } | undefined)?.status,
-      );
-      if (status) {
-        await applyConversationStatusFromWebhook(
-          conversation,
-          status,
-          data ?? {},
-        );
-      }
+      const payload = data ?? {};
+      const status =
+        mapChatwootStatus((payload as { status?: unknown }).status) ??
+        mapChatwootStatus(
+          (payload as { conversation?: { status?: unknown } }).conversation
+            ?.status,
+        ) ??
+        conversation.status;
+
+      await applyConversationStatusFromWebhook(conversation, status, payload);
     }
 
     return NextResponse.json({ success: true });

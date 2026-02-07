@@ -132,11 +132,9 @@ export function NewConversationForm() {
   }
 
   return (
-    <Card className="border-white/20 bg-white/80 shadow-[0_18px_60px_-36px_rgba(12,37,61,.55)] backdrop-blur-md dark:border-white/10 dark:bg-card/85">
+    <Card>
       <CardHeader>
-        <CardTitle className="font-display text-2xl">
-          Abrir nova conversa
-        </CardTitle>
+        <CardTitle>Abrir nova conversa</CardTitle>
         <CardDescription>
           Informe o contexto completo para o time receber seu ticket ja
           classificado.

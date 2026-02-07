@@ -85,11 +85,9 @@ export function SignInForm({ microsoftEnabled }: SignInFormProps) {
   }
 
   return (
-    <Card className="border-white/20 bg-white/80 backdrop-blur-lg dark:border-white/10 dark:bg-card/85">
+    <Card>
       <CardHeader className="space-y-2">
-        <CardTitle className="font-display text-2xl">
-          Entrar no Tickets
-        </CardTitle>
+        <CardTitle>Entrar no Tickets</CardTitle>
         <CardDescription>
           Use e-mail e senha, ou autentique com Microsoft para acessar suas
           conversas.

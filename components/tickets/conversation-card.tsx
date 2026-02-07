@@ -33,7 +33,7 @@ export function ConversationCard({ conversation }: ConversationCardProps) {
 
   return (
     <Link href={`/conversations/${conversation.id}`}>
-      <Card className="group h-full border-white/20 bg-white/75 shadow-[0_16px_48px_-32px_rgba(12,37,61,.55)] backdrop-blur-sm transition-transform duration-200 hover:-translate-y-1 hover:bg-white dark:border-white/10 dark:bg-card/80">
+      <Card className="group h-full transition-colors hover:border-primary/40">
         <CardHeader className="space-y-4">
           <div className="flex items-center justify-between gap-2">
             <StatusBadge status={conversation.status} />
@@ -45,9 +45,7 @@ export function ConversationCard({ conversation }: ConversationCardProps) {
         </CardHeader>
 
         <CardContent className="space-y-3 text-sm text-muted-foreground">
-          <p className="line-clamp-2 text-foreground/80">
-            {conversation.description}
-          </p>
+          <p className="line-clamp-2">{conversation.description}</p>
 
           <div className="flex items-center gap-2">
             <Building2 className="size-4" />

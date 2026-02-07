@@ -31,21 +31,34 @@ function asRecord(value: unknown): UnknownRecord {
   return value as UnknownRecord;
 }
 
+function parseNumericId(value: unknown): number | null {
+  if (typeof value === "number") {
+    return value;
+  }
+
+  if (typeof value === "string" && Number.isFinite(Number(value))) {
+    return Number(value);
+  }
+
+  return null;
+}
+
+function parseOptionalString(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
 export function parseChatwootConversationId(payload: unknown): number | null {
   const raw =
     asRecord(payload).id ??
     asRecord(asRecord(payload).conversation).id ??
     asRecord(payload).conversation_id;
 
-  if (typeof raw === "number") {
-    return raw;
-  }
-
-  if (typeof raw === "string" && Number.isFinite(Number(raw))) {
-    return Number(raw);
-  }
-
-  return null;
+  return parseNumericId(raw);
 }
 
 export function parseChatwootTimestamp(value: unknown): Date | null {
@@ -209,61 +222,174 @@ function buildStatusEventText(status: TicketStatus) {
   return "Conversa reaberta";
 }
 
+function resolveAssignee(payload: unknown) {
+  const root = asRecord(payload);
+  const conversation = asRecord(root.conversation);
+  const meta = asRecord(root.meta);
+  const conversationMeta = asRecord(conversation.meta);
+
+  const assigneeRecord = asRecord(
+    meta.assignee ??
+      conversationMeta.assignee ??
+      root.assignee ??
+      conversation.assignee,
+  );
+
+  const assignedAgentId =
+    parseNumericId(
+      assigneeRecord.id ?? root.assignee_id ?? conversation.assignee_id,
+    ) ?? null;
+
+  const assignedAgentName =
+    parseOptionalString(
+      assigneeRecord.name ?? root.assignee_name ?? conversation.assignee_name,
+    ) ?? null;
+
+  return { assignedAgentId, assignedAgentName };
+}
+
+function resolveEventTimestamp(payload: unknown) {
+  const root = asRecord(payload);
+  const conversation = asRecord(root.conversation);
+
+  return (
+    parseChatwootTimestamp(root.timestamp) ??
+    parseChatwootTimestamp(root.updated_at) ??
+    parseChatwootTimestamp(conversation.updated_at) ??
+    parseChatwootTimestamp(root.created_at) ??
+    new Date()
+  );
+}
+
+async function createTicketEventIfMissing(params: {
+  conversationId: string;
+  event: string;
+  title: string;
+  description: string | null;
+  payload: unknown;
+  occurredAt: Date;
+}) {
+  const duplicate = await db.ticketEvent.findFirst({
+    where: {
+      conversationId: params.conversationId,
+      event: params.event,
+      title: params.title,
+      occurredAt: params.occurredAt,
+    },
+    select: { id: true },
+  });
+
+  if (duplicate) {
+    return;
+  }
+
+  await db.ticketEvent.create({
+    data: {
+      conversationId: params.conversationId,
+      event: params.event,
+      title: params.title,
+      description: params.description,
+      occurredAt: params.occurredAt,
+      payload: params.payload as Prisma.InputJsonValue,
+    },
+  });
+}
+
+function buildAssigneeEventText(params: {
+  previousAssignedAgentName: string | null;
+  previousAssignedAgentId: number | null;
+  assignedAgentName: string | null;
+  assignedAgentId: number | null;
+}) {
+  if (params.assignedAgentName) {
+    if (params.previousAssignedAgentId || params.previousAssignedAgentName) {
+      return `Atendimento transferido para ${params.assignedAgentName}`;
+    }
+
+    return `Conversa atribuida para ${params.assignedAgentName}`;
+  }
+
+  if (params.assignedAgentId !== null) {
+    if (params.previousAssignedAgentId || params.previousAssignedAgentName) {
+      return `Atendimento transferido para agente #${params.assignedAgentId}`;
+    }
+
+    return `Conversa atribuida para agente #${params.assignedAgentId}`;
+  }
+
+  return "Conversa sem agente atribuido";
+}
+
 export async function applyConversationStatusFromWebhook(
   conversation: TicketConversation,
   status: TicketStatus,
   payload: unknown,
 ) {
-  const previousStatus = conversation.status;
-  const changed = previousStatus !== status;
+  const currentConversation = await db.ticketConversation.findUnique({
+    where: { id: conversation.id },
+  });
 
-  const assignee =
-    asRecord(asRecord(payload).meta).assignee ??
-    asRecord(asRecord(asRecord(payload).conversation).meta).assignee;
-  const assigneeRecord = asRecord(assignee);
+  if (!currentConversation) {
+    return;
+  }
 
-  const assignedIdRaw = assigneeRecord.id;
-  const assignedAgentId =
-    typeof assignedIdRaw === "number"
-      ? assignedIdRaw
-      : typeof assignedIdRaw === "string" &&
-          Number.isFinite(Number(assignedIdRaw))
-        ? Number(assignedIdRaw)
-        : null;
-  const assignedAgentName =
-    typeof assigneeRecord.name === "string" ? assigneeRecord.name : null;
+  const previousStatus = currentConversation.status;
+  const statusChanged = previousStatus !== status;
+  const { assignedAgentId, assignedAgentName } = resolveAssignee(payload);
+  const assigneeChanged =
+    currentConversation.assignedAgentId !== assignedAgentId ||
+    currentConversation.assignedAgentName !== assignedAgentName;
 
   const now = new Date();
+  const occurredAt = resolveEventTimestamp(payload);
 
   await db.ticketConversation.update({
-    where: { id: conversation.id },
+    where: { id: currentConversation.id },
     data: {
       status,
       assignedAgentId,
       assignedAgentName,
-      assignedAt: assignedAgentName ? now : conversation.assignedAt,
+      assignedAt:
+        assigneeChanged && assignedAgentId !== null
+          ? now
+          : currentConversation.assignedAt,
       resolvedAt:
-        status === TicketStatus.RESOLVED ? now : conversation.resolvedAt,
+        status === TicketStatus.RESOLVED &&
+        previousStatus !== TicketStatus.RESOLVED
+          ? now
+          : currentConversation.resolvedAt,
       reopenedAt:
         status === TicketStatus.OPEN && previousStatus === TicketStatus.RESOLVED
           ? now
-          : conversation.reopenedAt,
+          : currentConversation.reopenedAt,
       metadata: payload as Prisma.InputJsonValue,
     },
   });
 
-  if (changed) {
-    await db.ticketEvent.create({
-      data: {
-        conversationId: conversation.id,
-        event: "conversation.status_changed",
-        title: buildStatusEventText(status),
-        description:
-          assignedAgentName && status === TicketStatus.OPEN
-            ? `Atribuida para ${assignedAgentName}`
-            : null,
-        payload: payload as Prisma.InputJsonValue,
-      },
+  if (statusChanged) {
+    await createTicketEventIfMissing({
+      conversationId: currentConversation.id,
+      event: "conversation.status_changed",
+      title: buildStatusEventText(status),
+      description: null,
+      payload,
+      occurredAt,
+    });
+  }
+
+  if (assigneeChanged) {
+    await createTicketEventIfMissing({
+      conversationId: currentConversation.id,
+      event: "conversation.assignee_changed",
+      title: buildAssigneeEventText({
+        previousAssignedAgentName: currentConversation.assignedAgentName,
+        previousAssignedAgentId: currentConversation.assignedAgentId,
+        assignedAgentName,
+        assignedAgentId,
+      }),
+      description: null,
+      payload,
+      occurredAt,
     });
   }
 }

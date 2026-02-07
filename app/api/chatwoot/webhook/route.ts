@@ -79,23 +79,14 @@ export async function POST(request: Request) {
       event === "conversation_status_changed" ||
       event === "conversation_updated"
     ) {
-      const status = mapChatwootStatus(payload.status);
-      if (status) {
-        await applyConversationStatusFromWebhook(conversation, status, payload);
-      }
+      const status =
+        mapChatwootStatus(payload.status) ??
+        mapChatwootStatus(
+          (payload.conversation as { status?: unknown } | undefined)?.status,
+        ) ??
+        conversation.status;
 
-      await db.ticketEvent.create({
-        data: {
-          conversationId: conversation.id,
-          event,
-          title:
-            event === "conversation_updated"
-              ? "Conversa atualizada"
-              : "Status atualizado",
-          description: null,
-          payload: payload as Prisma.InputJsonValue,
-        },
-      });
+      await applyConversationStatusFromWebhook(conversation, status, payload);
     }
 
     if (event === "message_created") {

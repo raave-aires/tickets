@@ -128,6 +128,47 @@ function appendUniqueMessage(messages: ChatMessage[], message: ChatMessage) {
   });
 }
 
+function resolveWsAssignee(data: Record<string, unknown>) {
+  const conversation =
+    typeof data.conversation === "object" && data.conversation
+      ? (data.conversation as Record<string, unknown>)
+      : {};
+
+  const meta =
+    typeof data.meta === "object" && data.meta
+      ? (data.meta as Record<string, unknown>)
+      : {};
+
+  const conversationMeta =
+    typeof conversation.meta === "object" && conversation.meta
+      ? (conversation.meta as Record<string, unknown>)
+      : {};
+
+  const assigneeCandidate =
+    meta.assignee ??
+    conversationMeta.assignee ??
+    data.assignee ??
+    conversation.assignee;
+
+  if (assigneeCandidate === undefined) {
+    return { hasAssignee: false, assignedAgentName: null as string | null };
+  }
+
+  if (typeof assigneeCandidate !== "object" || !assigneeCandidate) {
+    return { hasAssignee: true, assignedAgentName: null as string | null };
+  }
+
+  const assignee = assigneeCandidate as Record<string, unknown>;
+
+  return {
+    hasAssignee: true,
+    assignedAgentName:
+      typeof assignee.name === "string"
+        ? assignee.name
+        : (null as string | null),
+  };
+}
+
 export function ChatInterface({
   conversationId,
   conversationTitle,
@@ -158,7 +199,7 @@ export function ChatInterface({
       return (
         <Badge
           variant="outline"
-          className="border-emerald-400/50 bg-emerald-200/40 text-emerald-900 dark:bg-emerald-900/40 dark:text-emerald-100"
+          className="border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
         >
           <Wifi className="mr-1 size-3" />
           Tempo real ativo
@@ -170,7 +211,7 @@ export function ChatInterface({
       return (
         <Badge
           variant="outline"
-          className="border-amber-400/50 bg-amber-200/40 text-amber-900 dark:bg-amber-900/40 dark:text-amber-100"
+          className="border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300"
         >
           <CircleDotDashed className="mr-1 size-3 animate-spin" />
           Conectando…
@@ -181,7 +222,7 @@ export function ChatInterface({
     return (
       <Badge
         variant="outline"
-        className="border-zinc-400/50 bg-zinc-200/40 text-zinc-900 dark:bg-zinc-800/50 dark:text-zinc-100"
+        className="border-muted-foreground/30 bg-muted/40 text-muted-foreground"
       >
         <WifiOff className="mr-1 size-3" />
         Tempo real indisponivel
@@ -326,24 +367,17 @@ export function ChatInterface({
 
         if (
           event === "conversation.updated" ||
-          event === "conversation.status_changed"
+          event === "conversation.status_changed" ||
+          event === "assignee.changed"
         ) {
           if (typeof data.status === "string") {
             const mappedStatus = data.status.toUpperCase() as TicketStatus;
             setStatus(mappedStatus);
           }
 
-          const meta =
-            typeof data.meta === "object" && data.meta
-              ? (data.meta as Record<string, unknown>)
-              : {};
-          const assignee =
-            typeof meta.assignee === "object" && meta.assignee
-              ? (meta.assignee as Record<string, unknown>)
-              : {};
-
-          if (typeof assignee.name === "string") {
-            setAssignedAgentName(assignee.name);
+          const { hasAssignee, assignedAgentName } = resolveWsAssignee(data);
+          if (hasAssignee) {
+            setAssignedAgentName(assignedAgentName);
           }
         }
 
@@ -448,13 +482,11 @@ export function ChatInterface({
 
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
-      <Card className="border-white/20 bg-white/80 backdrop-blur-md dark:border-white/10 dark:bg-card/85">
+      <Card>
         <CardHeader className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
-              <CardTitle className="font-display text-2xl">
-                {conversationTitle}
-              </CardTitle>
+              <CardTitle>{conversationTitle}</CardTitle>
               <CardDescription>
                 {assignedAgentName
                   ? `Agente responsavel: ${assignedAgentName}`
@@ -482,7 +514,7 @@ export function ChatInterface({
             </output>
           ) : null}
 
-          <ScrollArea className="h-[54vh] rounded-lg border border-border/70 bg-background/55 p-4">
+          <ScrollArea className="h-[54vh] rounded-md border p-4">
             <div ref={scrollRef} className="space-y-3">
               {loadingMessages ? (
                 <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
@@ -528,7 +560,10 @@ export function ChatInterface({
             </div>
           </ScrollArea>
 
-          <form className="flex gap-2" onSubmit={sendCurrentMessage}>
+          <form
+            className="flex items-center gap-2"
+            onSubmit={sendCurrentMessage}
+          >
             <Input
               name="message"
               value={draft}
@@ -536,9 +571,11 @@ export function ChatInterface({
               placeholder="Digite sua mensagem…"
               disabled={sending}
               autoComplete="off"
+              className="h-8 text-sm"
             />
             <Button
               type="submit"
+              size="default"
               disabled={sending || !draft.trim()}
               aria-label="Enviar mensagem"
             >
@@ -552,9 +589,9 @@ export function ChatInterface({
         </CardContent>
       </Card>
 
-      <Card className="border-white/20 bg-white/80 backdrop-blur-md dark:border-white/10 dark:bg-card/85">
+      <Card>
         <CardHeader>
-          <CardTitle className="font-display text-xl">Eventos</CardTitle>
+          <CardTitle>Eventos</CardTitle>
           <CardDescription>
             Atualizacoes via webhook do Chatwoot
           </CardDescription>

@@ -27,7 +27,6 @@ export function SignOutButton() {
       size="sm"
       onClick={handleSignOut}
       disabled={pending}
-      className="border-white/30 bg-white/10 text-white hover:bg-white/20"
     >
       <LogOut className="mr-2 size-4" />
       {pending ? "Saindo…" : "Sair"}

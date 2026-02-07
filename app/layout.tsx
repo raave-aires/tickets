@@ -1,22 +1,17 @@
 import type { Metadata } from "next";
-import { Fraunces, IBM_Plex_Mono, Work_Sans } from "next/font/google";
+import { Geist, Geist_Mono } from "next/font/google";
 import type { ReactNode } from "react";
+import { ThemeProvider } from "@/components/theme-provider";
 import "./globals.css";
 
-const workSans = Work_Sans({
-  variable: "--font-work-sans",
+const geistSans = Geist({
+  variable: "--font-geist-sans",
   subsets: ["latin"],
 });
 
-const fraunces = Fraunces({
-  variable: "--font-fraunces",
+const geistMono = Geist_Mono({
+  variable: "--font-geist-mono",
   subsets: ["latin"],
-});
-
-const ibmPlexMono = IBM_Plex_Mono({
-  variable: "--font-plex-mono",
-  subsets: ["latin"],
-  weight: ["400", "500", "600"],
 });
 
 export const metadata: Metadata = {
@@ -30,17 +25,11 @@ export default function RootLayout({
   children: ReactNode;
 }>) {
   return (
-    <html lang="pt-BR">
+    <html lang="pt-BR" suppressHydrationWarning>
       <body
-        className={`${workSans.variable} ${fraunces.variable} ${ibmPlexMono.variable} min-h-screen bg-background font-sans text-foreground antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} min-h-screen bg-background font-sans text-foreground antialiased`}
       >
-        <a
-          href="#main-content"
-          className="sr-only z-50 rounded-md bg-primary px-3 py-2 font-medium text-primary-foreground focus:not-sr-only focus:absolute focus:left-3 focus:top-3"
-        >
-          Pular para o conteudo principal
-        </a>
-        {children}
+        <ThemeProvider>{children}</ThemeProvider>
       </body>
     </html>
   );

@@ -4,37 +4,48 @@ type StatusBadgeProps = {
   status: string;
 };
 
-const statusConfig: Record<string, { label: string; className: string }> = {
+const statusConfig: Record<
+  string,
+  {
+    label: string;
+    variant: "default" | "secondary" | "outline";
+    className: string;
+  }
+> = {
   OPEN: {
     label: "Aberta",
+    variant: "outline",
     className:
-      "border-emerald-300/60 bg-emerald-200/40 text-emerald-900 dark:border-emerald-500/50 dark:bg-emerald-700/30 dark:text-emerald-100",
+      "border-emerald-500/45 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
   },
   PENDING: {
     label: "Pendente",
+    variant: "outline",
     className:
-      "border-amber-300/60 bg-amber-200/40 text-amber-900 dark:border-amber-500/50 dark:bg-amber-700/30 dark:text-amber-100",
+      "border-amber-500/45 bg-amber-500/10 text-amber-700 dark:text-amber-300",
   },
   RESOLVED: {
     label: "Resolvida",
-    className:
-      "border-blue-300/60 bg-blue-200/40 text-blue-900 dark:border-blue-500/50 dark:bg-blue-700/30 dark:text-blue-100",
+    variant: "outline",
+    className: "border-sky-500/45 bg-sky-500/10 text-sky-700 dark:text-sky-300",
   },
   SNOOZED: {
     label: "Pausada",
+    variant: "outline",
     className:
-      "border-zinc-300/70 bg-zinc-200/50 text-zinc-900 dark:border-zinc-500/50 dark:bg-zinc-700/30 dark:text-zinc-100",
+      "border-slate-500/45 bg-slate-500/10 text-slate-700 dark:text-slate-300",
   },
 };
 
 export function StatusBadge({ status }: StatusBadgeProps) {
   const config = statusConfig[status] ?? {
     label: status,
-    className: "border-border",
+    variant: "outline" as const,
+    className: "",
   };
 
   return (
-    <Badge variant="outline" className={config.className}>
+    <Badge variant={config.variant} className={config.className}>
       {config.label}
     </Badge>
   );
