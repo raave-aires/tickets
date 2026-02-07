@@ -889,7 +889,7 @@ export function ChatInterface({
                       </p>
                     ) : null}
                     {message.content ? (
-                      <p className="whitespace-pre-wrap break-words">
+                      <p className="whitespace-pre-wrap wrap-break-word">
                         {message.content}
                       </p>
                     ) : null}
